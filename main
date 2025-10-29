@@ -1,0 +1,78 @@
+import os
+import subprocess
+import time
+from datetime import datetime
+from telegram import Bot
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+
+# ================= CONFIG =================
+BOT_TOKEN = "8223051433:AAGFGLFBb6Ke6Qqk6EJiwXFAaluvIWdLjIY"
+OWNER_CHAT_ID = YOUR_TELEGRAM_ID  # Replace with your Telegram ID
+GITHUB_REPO = None  # Optional GitHub repo URL for auto-update
+BOT_FOLDER = "mybot"
+UPDATE_INTERVAL = 3600  # seconds, 1 hour for auto-update
+# ==========================================
+
+# Install required library
+subprocess.run(["pip", "install", "--upgrade", "python-telegram-bot"], check=True)
+
+# Logging function
+def log(msg):
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[{timestamp}] {msg}")
+    with open("logs.txt", "a") as f:
+        f.write(f"[{timestamp}] {msg}\n")
+
+# Send Telegram alert to owner
+def alert_owner(message):
+    if OWNER_CHAT_ID:
+        try:
+            bot = Bot(token=BOT_TOKEN)
+            bot.send_message(chat_id=OWNER_CHAT_ID, text=message)
+        except Exception as e:
+            log(f"Failed to send alert: {e}")
+
+# Clone or update GitHub repo if configured
+def git_update():
+    if GITHUB_REPO:
+        if not os.path.exists(BOT_FOLDER):
+            log("Cloning bot repo from GitHub...")
+            subprocess.run(["git", "clone", GITHUB_REPO, BOT_FOLDER], check=True)
+        else:
+            log("Pulling latest updates from GitHub...")
+            os.chdir(BOT_FOLDER)
+            subprocess.run(["git", "fetch", "origin"], check=True)
+            branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).decode().strip()
+            subprocess.run(["git", "reset", "--hard", f"origin/{branch}"], check=True)
+            os.chdir("..")
+
+# Run the bot
+def run_bot():
+    log("Starting bot...")
+    bot = Bot(token=BOT_TOKEN)
+    updater = Updater(token=BOT_TOKEN)
+
+    # Start command
+    def start(update, context):
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text="🎁 Appy Gift Catcher Bot is active!")
+        log(f"/start used by {update.effective_user.username} ({update.effective_chat.id})")
+        alert_owner(f"👤 /start used by {update.effective_user.username} ({update.effective_chat.id})")
+
+    updater.dispatcher.add_handler(CommandHandler('start', start))
+
+    # Catch all messages
+    def handle_message(update, context):
+        user = update.effective_user.username or update.effective_user.first_name
+        log(f"Message from {user} ({update.effective_chat.id}): {update.message.text}")
+        alert_owner(f"💬 Message from {user}: {update.message.text}")
+
+    updater.dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+
+    updater.start_polling()
+    updater.idle()
+
+# Main loop with auto-restart and hourly updates
+last_update = 0
+while True:
+    try:
